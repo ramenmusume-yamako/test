@@ -54,7 +54,7 @@
 
         const isPC = window.innerWidth >= 960;
 
-        // ★スマホ描画負荷対策：スマホの場合は内部解像度を半分にしてGPUのピクセル処理負荷を1/4にする
+        // スマホ描画負荷対策
         const V_WIDTH = 1280;
         const V_HEIGHT = 720;
         const scaleRatio = isPC ? 1.0 : 0.5; 
@@ -357,8 +357,14 @@
                         obstacles.push({ x: V_WIDTH, y: GROUND_Y - _selectedType.h, ..._selectedType });
                         spawnTimer = 0;
                         
-                        _requiredSpacing = 380 + (_speedRatio * 150); 
-                        nextSpawnThreshold = _requiredSpacing + (Math.random() * 300);
+                        // ★スマホ版限定：障害物同士の間隔を大幅に広く設定（PCは380〜、スマホは650〜）
+                        if (isPC) {
+                            _requiredSpacing = 380 + (_speedRatio * 150); 
+                            nextSpawnThreshold = _requiredSpacing + (Math.random() * 300);
+                        } else {
+                            _requiredSpacing = 650 + (_speedRatio * 180); 
+                            nextSpawnThreshold = _requiredSpacing + (Math.random() * 500); // ランダムな隙間も広めに
+                        }
                     }
 
                     for (let i = obstacles.length - 1; i >= 0; i--) {

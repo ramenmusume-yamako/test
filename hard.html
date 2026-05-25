@@ -62,17 +62,63 @@
         canvas.width = V_WIDTH * scaleRatio;
         canvas.height = V_HEIGHT * scaleRatio;
 
-        // --- オーディオ設定 ---
-        const bgm = new Audio('CHINA_BOY.mp3'); 
-        bgm.loop = true;                  
-        bgm.volume = 0.5;                 
+        // --- ★超軽量・ゼロ遅延 Web Audio API の設定 ---
+        let audioCtx = null;
+        let audioBuffers = { bgm: null, start: null, chashu: null };
+        let bgmSource = null;
 
-        const seStart = new Audio('dora.mp3'); 
-        seStart.volume = 1.0; 
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 非同期で音声ファイルをロードしてメモリに解凍
+            loadAudio('CHINA_BOY.mp3', 'bgm');
+            loadAudio('dora.mp3', 'start');
+            loadAudio('チャーシュー.mp3', 'chashu');
+        }
 
-        const seChashu = new Audio('チャーシュー.mp3');
-        seChashu.preload = 'auto';
-        seChashu.volume = 1.0;
+        function loadAudio(url, key) {
+            fetch(url)
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    audioBuffers[key] = audioBuffer;
+                }).catch(e => console.log("Audio load error:", e));
+        }
+
+        function playSE(key) {
+            if (!audioCtx || !audioBuffers[key]) return;
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffers[key];
+            
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 1.0;
+            
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            source.start(0);
+        }
+
+        function playBGM() {
+            if (!audioCtx || !audioBuffers['bgm'] || bgmSource) return;
+            bgmSource = audioCtx.createBufferSource();
+            bgmSource.buffer = audioBuffers['bgm'];
+            bgmSource.loop = true;
+
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0.4; // ボリューム調整
+
+            bgmSource.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            bgmSource.start(0);
+        }
+
+        function stopBGM() {
+            if (bgmSource) {
+                try { bgmSource.stop(); } catch(e){}
+                bgmSource = null;
+            }
+        }
 
         // --- 画像読み込み ---
         const pImgL = new Image(); const pImgR = new Image();
@@ -93,11 +139,7 @@
         
         const imgChashu = new Image();   
         imgChashu.src = 'tya-syu-.png'; 
-        imgChashu.onload = () => {
-            if (typeof imgChashu.decode === 'function') {
-                imgChashu.decode().catch(() => {});
-            }
-        };
+        imgChashu.onload = () => { if (typeof imgChashu.decode === 'function') imgChashu.decode().catch(() => {}); };
 
         const imgStartCallBg = new Image(); 
         imgStartCallBg.src = 'start_bg.png';
@@ -175,8 +217,7 @@
         }
         window.addEventListener('resize', resize);
         window.addEventListener('orientationchange', () => {
-            setTimeout(resize, 200);
-            setTimeout(resize, 500);
+            setTimeout(resize, 200); setTimeout(resize, 500);
         });
         resize();
 
@@ -210,10 +251,14 @@
             if (e.type === 'mousedown' && e.button === 0) return;
             if (e.code && !['Space', 'ArrowUp'].includes(e.code)) return;
             
+            // 初回入力時にオーディオを有効化（ブラウザのセキュリティ制限解除）
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            
             if (gameState === 'START') {
-                seChashu.load();
-                if (typeof imgChashu.decode === 'function') imgChashu.decode().catch(() => {});
-                seStart.play().catch(o => {}); 
+                playSE('start');
                 resetGame();
                 gameState = 'PLAYING';
                 startCallTimer = 120; 
@@ -227,7 +272,7 @@
                     displayScore = Math.floor(score);
                     return;
                 }
-                seStart.play().catch(o => {}); 
+                playSE('start');
                 resetGame();
                 gameState = 'PLAYING';
                 startCallTimer = 120; 
@@ -250,49 +295,30 @@
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 isPageVisible = false;
-                if (gameState === 'PLAYING') bgm.pause();
+                if (gameState === 'PLAYING') stopBGM();
             } else {
                 isPageVisible = true;
                 lastTime = performance.now(); 
-                if (gameState === 'PLAYING' && startCallTimer <= 0) bgm.play().catch(o => {});
+                if (gameState === 'PLAYING' && startCallTimer <= 0) playBGM();
             }
         });
 
         function resetGame() {
-            score = 0; 
-            displayScore = 0; 
-            countTimer = 0; 
-            startCallTimer = 0; 
-            gameOverTimer = 0; 
+            score = 0; displayScore = 0; countTimer = 0; startCallTimer = 0; gameOverTimer = 0; 
             currentSpeed = initialBaseSpeed;
-            obstacles.length = 0; 
-            spawnTimer = 0; 
-            nextSpawnThreshold = 60;
-            blindTimer = 0; 
-            player.y = GROUND_Y - player.height; 
-            player.vy = 0; 
-            player.gravity = BASE_GRAVITY; 
-            player.isJumping = false;
-            
+            obstacles.length = 0; spawnTimer = 0; nextSpawnThreshold = 60; blindTimer = 0; 
+            player.y = GROUND_Y - player.height; player.vy = 0; player.gravity = BASE_GRAVITY; player.isJumping = false;
             lastTime = performance.now(); 
             setRandomResetThreshold(); 
         }
 
         function update(currentTime) {
             if (!currentTime) currentTime = performance.now();
-
             _deltaTime = currentTime - lastTime;
             lastTime = currentTime;
 
-            if (!isPageVisible) {
-                requestAnimationFrame(update);
-                return;
-            }
-
-            if (_deltaTime > 100) {
-                _deltaTime = 16.666;
-            }
-
+            if (!isPageVisible) { requestAnimationFrame(update); return; }
+            if (_deltaTime > 100) _deltaTime = 16.666;
             _dtRatio = _deltaTime / (1000 / 60);
 
             if (gameState === 'PLAYING') {
@@ -309,28 +335,22 @@
 
                     if (startCallTimer <= 0) {
                         startCallTimer = 0;
-                        bgm.play().catch(o => {});
+                        playBGM();
                     }
                 } else {
                     currentSpeed += (isPC ? 0.006 : 0.009) * _dtRatio; 
                     score += (1 / 60) * _dtRatio; 
                     chashuTimer += (1 / 60) * _dtRatio; 
 
-                    if (chashuTimer >= 40.0) {
-                        resetChashuPhase();
-                    }
+                    if (chashuTimer >= 40.0) resetChashuPhase();
 
                     if (!hasChashuSpawnedThisPhase && (chashuTimer >= nextChashuTriggerTime || chashuTimer >= 35.0)) {
                         blindTimer = BLIND_DURATION;
                         blindPattern = Math.floor(Math.random() * 3); 
                         hasChashuSpawnedThisPhase = true;
 
-                        // ★カクつき対策：音声の頭出しによる一瞬のブロッキングを回避
-                        if(!seChashu.paused) {
-                            seChashu.pause();
-                        }
-                        seChashu.currentTime = 0;
-                        seChashu.play().catch(o => {});
+                        // ★Web Audio API により完全並列・無遅延再生（カクつきゼロ）
+                        playSE('chashu');
                     }
                     
                     bgScroll += (currentSpeed * 0.7) * _dtRatio; 
@@ -349,9 +369,7 @@
                     player.y += player.vy * _dtRatio;
 
                     if (player.y > GROUND_Y - player.height) {
-                        player.y = GROUND_Y - player.height;
-                        player.vy = 0;
-                        player.isJumping = false;
+                        player.y = GROUND_Y - player.height; player.vy = 0; player.isJumping = false;
                     }
 
                     // --- 障害物出現計算 ---
@@ -361,7 +379,6 @@
                         obstacles.push({ x: V_WIDTH, y: GROUND_Y - _selectedType.h, ..._selectedType });
                         spawnTimer = 0;
                         
-                        // ★スマホ版の間隔調整：前回より少しだけ狭めてテンポを改善（480〜）
                         if (isPC) {
                             _requiredSpacing = 380 + (_speedRatio * 150); 
                             nextSpawnThreshold = _requiredSpacing + (Math.random() * 300);
@@ -372,8 +389,7 @@
                     }
 
                     for (let i = obstacles.length - 1; i >= 0; i--) {
-                        _obs = obstacles[i];
-                        _obs.x -= currentSpeed * _dtRatio;
+                        _obs = obstacles[i]; _obs.x -= currentSpeed * _dtRatio;
 
                         _pL = player.x + player.width * 0.45; _pR = player.x + player.width * 0.55;
                         _pT = player.y + player.height * 0.3; _pB = player.y + player.height * 0.85;
@@ -383,13 +399,10 @@
                         if (_pL < _oR && _pR > _oL && _pT < _oB && _pB > _oT) {
                             gameState = 'GAMEOVER';
                             ui.style.display = 'none';
-                            bgm.pause();
-                            bgm.currentTime = 0;
-                            seStart.currentTime = 0;
-                            seStart.play().catch(o => {}); 
+                            stopBGM();
+                            playSE('start'); 
 
-                            gameOverTimer = 120; 
-                            saveScore(score);
+                            gameOverTimer = 120; saveScore(score);
                         }
                         if (_obs.x + _obs.w < -100) obstacles.splice(i, 1);
                     }
@@ -399,15 +412,11 @@
 
             if (gameState === 'GAMEOVER') {
                 if (gameOverTimer > 0) {
-                    gameOverTimer -= _dtRatio; 
-                    if (gameOverTimer < 0) gameOverTimer = 0;
+                    gameOverTimer -= _dtRatio; if (gameOverTimer < 0) gameOverTimer = 0;
                 } else {
                     if (displayScore < Math.floor(score)) {
                         countTimer += _dtRatio;
-                        if (countTimer >= 4) {
-                            displayScore += 1;
-                            countTimer = 0;
-                        }
+                        if (countTimer >= 4) { displayScore += 1; countTimer = 0; }
                     }
                 }
             }
@@ -431,18 +440,15 @@
                 ctx.drawImage(imgChashu, 440 * scaleRatio, 260 * scaleRatio, 440 * scaleRatio, 330 * scaleRatio); 
             } 
             else if (pattern === 2) {
-                // ★超軽量化：カクつきの原因になる rotate と translate を完全に排除し、固定座標で高速描画
                 ctx.drawImage(imgChashu, (V_WIDTH / 2 - 400) * scaleRatio, (V_HEIGHT / 2 - 190) * scaleRatio, 800 * scaleRatio, 500 * scaleRatio);
             }
-
             ctx.restore();
         }
 
-        let _bgBaseX = 0;
-        let _drawX = 0;
+        let _bgBaseX = 0; let _drawX = 0;
 
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // ★描画軽量化：背景画像で画面が完全に塗りつぶされるため、重い ctx.clearRect をスキップ
             
             // 背景描画（スケール対応）
             if (bgReadyCount > 0) {
@@ -465,7 +471,7 @@
                 ctx.drawImage((Math.floor(player.animTimer / 30) % 2 === 0) ? pImgL : pImgR, player.x * scaleRatio, player.y * scaleRatio, player.width * scaleRatio, player.height * scaleRatio);
             }
 
-            // 障害物描画（スケール対応）
+            // 障害物描画
             for (let i = 0; i < obstacles.length; i++) {
                 _obs = obstacles[i];
                 if (_obs.img && _obs.img.complete) ctx.drawImage(_obs.img, _obs.x * scaleRatio, _obs.y * scaleRatio, _obs.w * scaleRatio, _obs.h * scaleRatio);
@@ -481,12 +487,9 @@
                 if (imgStartCallBg.complete && imgStartCallBg.width > 0) {
                     ctx.drawImage(imgStartCallBg, (V_WIDTH / 2 - imgStartCallBg.width / 2) * scaleRatio, (V_HEIGHT / 2 - imgStartCallBg.height / 2) * scaleRatio, imgStartCallBg.width * scaleRatio, imgStartCallBg.height * scaleRatio);
                 }
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = '#e74c3c'; 
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#e74c3c'; 
                 ctx.font = `bold ${Math.floor(90 * scaleRatio)}px sans-serif`;
-                ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-                ctx.shadowBlur = 10 * scaleRatio;
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.8)'; ctx.shadowBlur = 10 * scaleRatio;
                 ctx.fillText('スタート！', (V_WIDTH / 2) * scaleRatio, (V_HEIGHT / 2) * scaleRatio);
                 ctx.restore();
             }
@@ -494,8 +497,7 @@
             if (gameState === 'START' || gameState === 'GAMEOVER') {
                 ctx.fillStyle = 'rgba(0,0,0,0.8)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.textAlign = 'center';
-                ctx.shadowBlur = 0;              
+                ctx.textAlign = 'center'; ctx.shadowBlur = 0;              
                 
                 if (gameState === 'START') {
                     ctx.textBaseline = 'alphabetic';
@@ -509,20 +511,16 @@
                     ctx.save();
                     let textY, fontSize, textX;
                     if (gameOverTimer > 0) {
-                        ctx.textBaseline = 'middle';
-                        textX = V_WIDTH / 2; textY = V_HEIGHT / 2; fontSize = 120; 
+                        ctx.textBaseline = 'middle'; textX = V_WIDTH / 2; textY = V_HEIGHT / 2; fontSize = 120; 
                     } else {
-                        ctx.textBaseline = 'alphabetic';
-                        textX = V_WIDTH / 2 - 220; textY = V_HEIGHT / 2 - 100; fontSize = 80;
+                        ctx.textBaseline = 'alphabetic'; textX = V_WIDTH / 2 - 220; textY = V_HEIGHT / 2 - 100; fontSize = 80;
                     }
                     ctx.fillStyle = '#e67e22'; ctx.font = `bold ${Math.floor(fontSize * scaleRatio)}px sans-serif`;
                     ctx.fillText('完 食', textX * scaleRatio, textY * scaleRatio);
                     ctx.restore();
                     
                     if (gameOverTimer === 0) {
-                        ctx.save();
-                        ctx.textAlign = 'center';
-                        const leftCenterX = V_WIDTH / 2 - 220; 
+                        ctx.save(); ctx.textAlign = 'center'; const leftCenterX = V_WIDTH / 2 - 220; 
                         ctx.fillStyle = 'white'; ctx.font = `${Math.floor(45 * scaleRatio)}px sans-serif`;
                         ctx.fillText(`記録: ${displayScore} 秒`, leftCenterX * scaleRatio, (V_HEIGHT / 2 + 10) * scaleRatio);
                         ctx.font = `${Math.floor(30 * scaleRatio)}px sans-serif`;
@@ -535,8 +533,7 @@
                             ctx.fillText('画面タップで演出をスキップ', leftCenterX * scaleRatio, (V_HEIGHT / 2 + 160) * scaleRatio);
                         }
 
-                        const rightCenterX = V_WIDTH / 2 + 260; 
-                        const rankYStart = V_HEIGHT / 2 - 130;  
+                        const rightCenterX = V_WIDTH / 2 + 260; const rankYStart = V_HEIGHT / 2 - 130;  
                         ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
                         ctx.fillRect((rightCenterX - 200) * scaleRatio, (rankYStart - 60) * scaleRatio, 400 * scaleRatio, 310 * scaleRatio);
                         ctx.fillStyle = '#f1c40f'; ctx.font = `bold ${Math.floor(32 * scaleRatio)}px sans-serif`;

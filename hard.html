@@ -67,7 +67,6 @@
         const seStart = new Audio('dora.mp3'); 
         seStart.volume = 1.0; 
 
-        // ★カクつき対策：事前にプリロードを明示的に指定
         const seChashu = new Audio('チャーシュー.mp3');
         seChashu.preload = 'auto';
         seChashu.volume = 1.0;
@@ -88,7 +87,16 @@
         const imgNaruto = new Image();   imgNaruto.src = 'naruto.png';
         const imgMenma = new Image();    imgMenma.src = 'menma.png';
         const imgNori = new Image();     imgNori.src = 'nori.png';
-        const imgChashu = new Image();   imgChashu.src = 'tya-syu-.png'; 
+        
+        // ★カクつき対策：チャーシュー画像の事前ロードとデコードの強制
+        const imgChashu = new Image();   
+        imgChashu.src = 'tya-syu-.png'; 
+        imgChashu.onload = () => {
+            if (typeof imgChashu.decode === 'function') {
+                // 初めて描画される前に非同期でデコードを完了させ、GPUに送っておく
+                imgChashu.decode().catch(e => console.log("Decode deferred"));
+            }
+        };
 
         const imgStartCallBg = new Image(); 
         imgStartCallBg.src = 'start_bg.png';
@@ -195,9 +203,10 @@
             if (e.code && !['Space', 'ArrowUp'].includes(e.code)) return;
             
             if (gameState === 'START') {
-                // ★カクつき対策：ゲーム開始時に、チャーシュー音を一度裏でロードさせておく
                 seChashu.load();
-                
+                // ★さらに念押し：スタートボタンを押した瞬間にもデコードをバックグラウンド要求
+                if (typeof imgChashu.decode === 'function') imgChashu.decode().catch(() => {});
+
                 seStart.play().catch(o => {}); 
                 resetGame();
                 gameState = 'PLAYING';
@@ -311,7 +320,6 @@
                         blindPattern = Math.floor(Math.random() * 3); 
                         hasChashuSpawnedThisPhase = true;
 
-                        // チャーシューが張り付いた瞬間にSEを再生
                         seChashu.currentTime = 0;
                         seChashu.play().catch(o => {});
                     }
@@ -410,9 +418,12 @@
                 ctx.drawImage(imgChashu, 440, 260, 440, 330); 
             } 
             else if (pattern === 2) {
+                // ★カクつき対策：変形マトリクスを独立させて負荷軽減
+                ctx.save();
                 ctx.translate(V_WIDTH / 2, V_HEIGHT / 2 + 60); 
                 ctx.rotate(12 * Math.PI / 180); 
                 ctx.drawImage(imgChashu, -400, -250, 800, 500);
+                ctx.restore();
             }
 
             ctx.restore();

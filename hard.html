@@ -325,6 +325,10 @@
                         blindPattern = Math.floor(Math.random() * 3); 
                         hasChashuSpawnedThisPhase = true;
 
+                        // ★カクつき対策：音声の頭出しによる一瞬のブロッキングを回避
+                        if(!seChashu.paused) {
+                            seChashu.pause();
+                        }
                         seChashu.currentTime = 0;
                         seChashu.play().catch(o => {});
                     }
@@ -357,13 +361,13 @@
                         obstacles.push({ x: V_WIDTH, y: GROUND_Y - _selectedType.h, ..._selectedType });
                         spawnTimer = 0;
                         
-                        // ★スマホ版限定：障害物同士の間隔を大幅に広く設定（PCは380〜、スマホは650〜）
+                        // ★スマホ版の間隔調整：前回より少しだけ狭めてテンポを改善（480〜）
                         if (isPC) {
                             _requiredSpacing = 380 + (_speedRatio * 150); 
                             nextSpawnThreshold = _requiredSpacing + (Math.random() * 300);
                         } else {
-                            _requiredSpacing = 650 + (_speedRatio * 180); 
-                            nextSpawnThreshold = _requiredSpacing + (Math.random() * 500); // ランダムな隙間も広めに
+                            _requiredSpacing = 480 + (_speedRatio * 150); 
+                            nextSpawnThreshold = _requiredSpacing + (Math.random() * 350); 
                         }
                     }
 
@@ -427,11 +431,8 @@
                 ctx.drawImage(imgChashu, 440 * scaleRatio, 260 * scaleRatio, 440 * scaleRatio, 330 * scaleRatio); 
             } 
             else if (pattern === 2) {
-                ctx.save();
-                ctx.translate((V_WIDTH / 2) * scaleRatio, (V_HEIGHT / 2 + 60) * scaleRatio); 
-                ctx.rotate(12 * Math.PI / 180); 
-                ctx.drawImage(imgChashu, -400 * scaleRatio, -250 * scaleRatio, 800 * scaleRatio, 500 * scaleRatio);
-                ctx.restore();
+                // ★超軽量化：カクつきの原因になる rotate と translate を完全に排除し、固定座標で高速描画
+                ctx.drawImage(imgChashu, (V_WIDTH / 2 - 400) * scaleRatio, (V_HEIGHT / 2 - 190) * scaleRatio, 800 * scaleRatio, 500 * scaleRatio);
             }
 
             ctx.restore();
